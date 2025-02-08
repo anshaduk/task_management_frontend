@@ -56,14 +56,14 @@ const Login = () => {
 
 export default Login;
 
-// Inline styles with full centering fix
+
 const styles = {
     container: {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        width: '100vw',  // Ensure full width
+        width: '100vw',  
         backgroundColor: '#f0f2f5',
     },
     loginBox: {

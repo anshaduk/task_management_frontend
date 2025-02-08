@@ -1,26 +1,36 @@
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 
 const Dashboard = () => {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [isUpdating, setIsUpdating] = useState(false); // Track updating state
     const navigate = useNavigate();
 
+    
     useEffect(() => {
         const fetchTasks = async () => {
             const token = localStorage.getItem("access_token");
             if (!token) {
-                navigate("/");
+                handleLogout();
                 return;
             }
 
             try {
-                const response = await axios.get("http://127.0.0.1:8000/tasks/", {
-                    headers: { Authorization: `Bearer ${token}` }
+                const response = await fetch("http://127.0.0.1:8000/tasks/", {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
                 });
-                setTasks(response.data);
+
+                if (!response.ok) {
+                    throw new Error("Failed to fetch tasks");
+                }
+
+                const data = await response.json();
+                setTasks(data);
             } catch (error) {
                 setError("Error fetching tasks.");
                 console.error("Error fetching tasks:", error);
@@ -30,212 +40,176 @@ const Dashboard = () => {
         };
 
         fetchTasks();
-    }, [navigate]);
+    }, []);
 
-    const handleStatusUpdate = async (taskId, newStatus) => {
+    
+    const handleStatusUpdate = async (taskId, newStatus, workedHours = null, completionReport = null) => {
+        if (isUpdating) return; 
+        setIsUpdating(true);
+
         const token = localStorage.getItem("access_token");
         try {
-            const response = await axios.patch(
-                `http://127.0.0.1:8000/tasks/${taskId}/`,
-                { status: newStatus },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            if (response.status === 200) {
-                setTasks(prevTasks =>
-                    prevTasks.map(task =>
-                        task.id === taskId ? { ...task, status: newStatus } : task
-                    )
-                );
+            const body = { status: newStatus };
+            if (newStatus === "completed") {
+                if (!workedHours || !completionReport) {
+                    alert("Worked hours and completion report are required for completed tasks.");
+                    setIsUpdating(false);
+                    return;
+                }
+                body.worked_hours = parseFloat(workedHours);
+                body.completion_report = completionReport;
             }
+
+            const response = await fetch(`http://127.0.0.1:8000/tasks/${taskId}/`, {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to update status");
+            }
+
+            const updatedTask = await response.json();
+            setTasks((prevTasks) =>
+                prevTasks.map((task) =>
+                    task.id === taskId ? { ...task, ...updatedTask } : task
+                )
+            );
         } catch (error) {
             console.error("Error updating task status:", error);
             setError("Failed to update task status.");
+        } finally {
+            setIsUpdating(false);
         }
     };
 
-    const handleSubmitReport = async (taskId) => {
-        const token = localStorage.getItem("access_token");
-
-        const workedHours = prompt("Enter Worked Hours:");
-        const report = prompt("Enter Completion Report:");
-
-        if (!workedHours || isNaN(workedHours) || !report) {
-            alert("Invalid input. Please enter valid worked hours and a report.");
-            return;
-        }
-
-        try {
-            const response = await axios.patch(
-                `http://127.0.0.1:8000/tasks/${taskId}/`,
-                {
-                    worked_hours: parseFloat(workedHours),
-                    completion_report: report,
-                    status: "Completed"
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            if (response.status === 200) {
-                setTasks(prevTasks =>
-                    prevTasks.map(task =>
-                        task.id === taskId
-                            ? { ...task, status: "Completed", worked_hours: workedHours, completion_report: report }
-                            : task
-                    )
-                );
-            }
-        } catch (error) {
-            console.error("Error submitting completion report:", error);
-            setError("Failed to submit report.");
+    
+    const getStatusColor = (status) => {
+        switch (status.toLowerCase()) {
+            case "pending":
+                return "bg-yellow-100 text-yellow-800";
+            case "in progress":
+                return "bg-blue-100 text-blue-800";
+            case "completed":
+                return "bg-green-100 text-green-800";
+            default:
+                return "bg-gray-100 text-gray-800";
         }
     };
 
+    
     const handleLogout = () => {
-        localStorage.clear();
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("username");
         navigate("/");
     };
 
     return (
-        <div style={styles.container}>
-            <div style={styles.dashboardBox}>
-                <h2 style={styles.title}>Welcome, {localStorage.getItem("username")}</h2>
-                <h3 style={styles.subtitle}>Assigned Tasks</h3>
+        <div className="min-h-screen bg-gray-50 py-8 px-4">
+            <div className="max-w-4xl mx-auto">
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <h1 className="text-2xl font-bold text-gray-900">
+                            Welcome, {localStorage.getItem("username")}
+                        </h1>
+                        <button
+                            onClick={handleLogout}
+                            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                        >
+                            Logout
+                        </button>
+                    </div>
 
-                {loading ? (
-                    <p>Loading tasks...</p>
-                ) : error ? (
-                    <p style={styles.error}>{error}</p>
-                ) : tasks.length === 0 ? (
-                    <p>No tasks assigned.</p>
-                ) : (
-                    <ul style={styles.taskList}>
-                        {tasks.map(task => (
-                            <li key={task.id} style={styles.taskItem}>
-                                <div>
-                                    <strong>{task.title}</strong> - {task.description} <br />
-                                    <span>Status: <b>{task.status}</b></span>
-                                </div>
+                    {error && (
+                        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded">
+                            {error}
+                        </div>
+                    )}
 
-                                <div style={styles.actions}>
-                                    {task.status !== "Completed" && (
-                                        <>
-                                            <select
-                                                value={task.status}
-                                                onChange={(e) => handleStatusUpdate(task.id, e.target.value)}
-                                                style={styles.select}
+                    {loading ? (
+                        <div className="text-center py-8">
+                            <p className="text-gray-600">Loading tasks...</p>
+                        </div>
+                    ) : tasks.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-gray-600">No tasks assigned.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {tasks.map((task) => (
+                                <div
+                                    key={task.id}
+                                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                                >
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-gray-900">
+                                                {task.title}
+                                            </h3>
+                                            <p className="text-gray-600 mt-1">
+                                                {task.description}
+                                            </p>
+                                            <span
+                                                className={`inline-block px-2 py-1 rounded-full text-sm font-medium mt-2 ${getStatusColor(
+                                                    task.status
+                                                )}`}
                                             >
-                                                <option value="Pending">Pending</option>
-                                                <option value="In Progress">In Progress</option>
-                                                <option value="Completed">Completed</option>
-                                            </select>
+                                                {task.status}
+                                            </span>
+                                        </div>
 
-                                            {task.status === "In Progress" && (
-                                                <button
-                                                    onClick={() => handleSubmitReport(task.id)}
-                                                    style={styles.completeButton}
+                                        {task.status !== "completed" && (
+                                            <div className="flex items-center space-x-2">
+                                                <select
+                                                    value={task.status}
+                                                    onChange={(e) => {
+                                                        const newStatus = e.target.value;
+                                                        if (newStatus === "completed") {
+                                                            const workedHours = prompt("Enter Worked Hours (e.g., 2.5):");
+                                                            const report = prompt("Enter Completion Report:");
+                                                            if (!workedHours || !report) {
+                                                                alert("Worked hours and completion report are required.");
+                                                                return;
+                                                            }
+                                                            handleStatusUpdate(task.id, newStatus, workedHours, report);
+                                                        } else {
+                                                            handleStatusUpdate(task.id, newStatus);
+                                                        }
+                                                    }}
+                                                    className="border border-gray-300 rounded px-3 py-1 text-sm"
                                                 >
-                                                    Submit Report
-                                                </button>
-                                            )}
-                                        </>
-                                    )}
+                                                    <option value="pending">Pending</option>
+                                                    <option value="in Progress">In Progress</option>
+                                                    <option value="completed">Completed</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
 
-                                    {task.status === "Completed" && (
-                                        <div style={styles.reportBox}>
-                                            <p><b>Worked Hours:</b> {task.worked_hours}</p>
-                                            <p><b>Report:</b> {task.completion_report}</p>
+                                    {task.status === "completed" && task.completion_report && (
+                                        <div className="mt-4 bg-gray-50 rounded p-4">
+                                            <div className="text-sm">
+                                                <p className="font-medium text-gray-900">
+                                                    Worked Hours: {task.worked_hours}
+                                                </p>
+                                                <p className="mt-1 text-gray-600">
+                                                    Report: {task.completion_report}
+                                                </p>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
 };
 
 export default Dashboard;
-
-// Styles
-const styles = {
-    container: {
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        width: '100vw',
-        backgroundColor: '#f0f2f5',
-    },
-    dashboardBox: {
-        backgroundColor: '#ffffff',
-        padding: '2rem',
-        borderRadius: '8px',
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-        width: '100%',
-        maxWidth: '600px',
-        textAlign: 'center',
-    },
-    title: {
-        color: '#333',
-        fontSize: '1.8rem',
-    },
-    subtitle: {
-        marginBottom: '1rem',
-        color: '#555',
-        fontSize: '1.3rem',
-    },
-    error: {
-        color: 'red',
-        fontSize: '1rem',
-    },
-    taskList: {
-        listStyleType: 'none',
-        padding: 0,
-    },
-    taskItem: {
-        backgroundColor: '#f9f9f9',
-        padding: '1rem',
-        margin: '0.5rem 0',
-        borderRadius: '6px',
-        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-        textAlign: 'left',
-    },
-    actions: {
-        marginTop: '0.5rem',
-    },
-    select: {
-        padding: '0.4rem',
-        fontSize: '1rem',
-        borderRadius: '4px',
-        marginRight: '0.5rem',
-    },
-    completeButton: {
-        padding: '0.5rem 1rem',
-        borderRadius: '4px',
-        border: 'none',
-        backgroundColor: '#28a745',
-        color: 'white',
-        cursor: 'pointer',
-    },
-    reportBox: {
-        backgroundColor: '#e9f5e9',
-        padding: '0.5rem',
-        borderRadius: '5px',
-        marginTop: '0.5rem',
-        textAlign: 'left',
-    },
-    logoutButton: {
-        marginTop: '1rem',
-        padding: '0.75rem 1.5rem',
-        borderRadius: '4px',
-        border: 'none',
-        backgroundColor: '#dc3545',
-        color: 'white',
-        fontSize: '1rem',
-        cursor: 'pointer',
-    },
-};
