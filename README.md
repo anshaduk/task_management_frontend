@@ -12,3 +12,6 @@ This is the frontend of the Task Management Application that allows users to man
 
 3. Run the application
    npm run dev
+
+4. URL Path
+   http://localhost:5173/
